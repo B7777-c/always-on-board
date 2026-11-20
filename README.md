@@ -32,6 +32,17 @@ Always-on Board 把常驻任务和运行进程放在一起，让你看状态、�
 
 看板只准备草稿，**由你检查并发送**。后续操作遵循 Agent 宿主的权限机制；看板不直接修复、停止或重启任务。
 
+## Windows 移植版（本 fork）
+
+本 fork 运行于 **Windows** 而非 macOS。界面、草稿操作、多语言和 DSH bundle 接线均未改动，仅重写了两个采集器：
+
+- **常驻任务** — Windows 任务计划程序任务（经 `MSFT_ScheduledTask` + `Get-ScheduledTaskInfo`）替代 launchd 任务，Windows 服务（经 `Win32_Service`）替代 LaunchDaemons。任务状态映射为：就绪 / 已排队 / 运行中 → 已加载，禁用 → 已禁用；重复间隔由 ISO 8601 时长换算；`LastTaskResult` 为 267011 表示“从未运行”。
+- **运行进程** — `Win32_Process` 替代 `ps`（CPU 为生命周期平均值，100% = 一个核心），`Get-NetTCPConnection -State Listen` 替代 `lsof` 采集 TCP 监听端口。两者由一次 PowerShell 调用采集，脚本经 `-EncodedCommand` 传入。
+- **无法从 macOS 映射的部分** — Windows 没有工作目录，项目归属改为依靠 `--directory` 参数和任务的工作目录；没有日志路径与日志修改时间（上次运行时间改为取自任务计划程序）；没有按用户的 launchd 域（列出全部任务，系统任务标记为 `system`）；除重复间隔外不解析日历计划。说明文件仍位于 `~/.config/dsh-ops-board/notes.json`，键为 `task:\...` / `service:...` 形式的 ID。三个映射决定：任务计划程序的重启动设置（`RestartOnFailure` / `RestartCount`）**不**映射为 KeepAlive——计划任务永远不会是“keepalive-down”，只有已停止的自动服务才是；过期判断按触发器节奏（重复间隔，否则每日 86400 秒 / 每周 604800 秒 / 每月 2592000 秒），而不是默认的 30 小时；已停止服务的 `Win32_Service.ExitCode` 为 **1077**（`ERROR_SERVICE_NEVER_STARTED`，从未启动）不是故障，映射为空退出码，因此从未启动的服务不会挤满故障列表。
+- **尚未验证** — 本插件是否能在 DSH Desktop 0.10.0（DataElement）中加载。原版仅在 macOS 的 DSH CLI `0.2.1-rc.2` 上验证过；在实测之前，不要假定桌面版具备侧边栏 / 草稿接口。
+
+请从本 fork 以本地 bundle 方式安装（见下）；`dsh plugin add github:...` 仍指向 macOS 原版。
+
 ## 快速开始
 
 需要 **macOS + DeepSeek Harness（DSH）**，宿主须支持本地 bundle、侧边栏和会话草稿接口。已在 DSH `0.2.1-rc.2` 验证相关 UI，最低兼容版本尚未建立。

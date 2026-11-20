@@ -32,6 +32,17 @@ The workflow: **review a task → right-click an intent → review and send the 
 
 The board prepares a draft; **you review and send it**. Subsequent actions follow the Agent host's permissions. The board does not directly repair, stop or restart tasks.
 
+## Windows port (this fork)
+
+This fork runs on **Windows** instead of macOS. The UI, draft actions, locales and DSH bundle wiring are unchanged; only the two collectors were rewritten:
+
+- **Persistent tasks** — Windows Task Scheduler tasks (via `MSFT_ScheduledTask` + `Get-ScheduledTaskInfo`) replace launchd jobs, and Windows services (via `Win32_Service`) replace LaunchDaemons. Task state maps as Ready / Queued / Running → loaded, Disabled → disabled; repetition intervals map from ISO 8601 durations; `LastTaskResult` 267011 means "never ran".
+- **Running processes** — `Win32_Process` replaces `ps` (CPU is the lifetime average, 100% = one core) and `Get-NetTCPConnection -State Listen` replaces `lsof` for TCP listeners. Both are collected in a single PowerShell invocation, passed via `-EncodedCommand`.
+- **What does not map from macOS** — no working directories on Windows, so project attribution falls back to `--directory` flags and task working directories; no log paths or log mtimes (last-run time comes from Task Scheduler instead); no per-user launchd domain (all tasks are listed, system tasks are marked `system`); no calendar schedules beyond repetition intervals. The notes file still lives at `~/.config/dsh-ops-board/notes.json`, keyed by `task:\...` / `service:...` ids. Three mapping decisions: Task Scheduler restart settings (`RestartOnFailure` / `RestartCount`) do **not** map to KeepAlive — a scheduled task is never "keepalive-down", only an Auto service that stopped is; staleness is judged against the trigger cadence (repetition interval, else daily 86400s / weekly 604800s / monthly 2592000s) instead of the 30-hour default; and a stopped service's `Win32_Service.ExitCode` of **1077** (`ERROR_SERVICE_NEVER_STARTED`) is not a failure — it maps to a null exit code, so never-started services do not flood the fail list.
+- **Not yet verified** — whether this plugin loads in DSH Desktop 0.10.0 (DataElement). The original was verified only against DSH CLI `0.2.1-rc.2` on macOS; do not assume the sidebar / draft APIs exist in the desktop build until tested.
+
+Install from this fork as a local bundle (see below); the `dsh plugin add github:...` route still points at the macOS original.
+
 ## Quick start
 
 Requires **macOS + DeepSeek Harness (DSH)** with local bundles, sidebar slots and conversation draft APIs. Related UI flows were checked on DSH `0.2.1-rc.2`; a minimum supported version has not been established.

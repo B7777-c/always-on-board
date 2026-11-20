@@ -52,15 +52,17 @@ window.__ModuleLoader__.load({
         "language": "界面语言",
         "reason.runtime-unknown": "仅发现配置，运行态尚未核实",
         "short.runtime-unknown": "待确认",
-        "reason.not-loaded": "配置存在，但当前用户 launchd 未加载此任务",
+        "reason.not-loaded": "配置存在，但当前未加载此任务",
         "short.not-loaded": "未加载",
         "source.unknown": "来源待确认；未关联不等于终端启动",
         "field.source": "启动来源",
         "field.management": "管理方式",
-        "management.definition": "launchd 配置：未加载 / 待确认",
+        "management.definition": "任务计划程序 / 服务配置：未加载 / 待确认",
         "management.unassociated": "未关联到已知管理器",
         "management.launchd": "launchd 已加载",
-        'col.resources': 'CPU / RSS', "col.ports": "监听端口", "category.launchd": "launchd 任务", "category.project": "项目", "category.agent": "Agent 工具", "category.other": "其他任务", "process.observed": "进程已观测 · 业务未验证", "process.instances": "实例 / 进程", "field.cwd": "工作目录 / 项目", "field.members": "成员身份（PID / PPID / 启动时间）", "process.gaps": "进程证据缺口", "resources.hint": "CPU 为 ps 平均值（单核 100%）；RSS 为成员合计，可能重复计算共享页；仅展示 TCP 监听端口。",
+        "management.scheduled": "任务计划程序 — 已加载",
+        "management.service": "Windows 服务 — 运行中",
+        'col.resources': 'CPU / RSS', "col.ports": "监听端口", "category.launchd": "launchd 任务", "category.project": "项目", "category.agent": "Agent 工具", "category.other": "其他任务", "process.observed": "进程已观测 · 业务未验证", "process.instances": "实例 / 进程", "field.cwd": "工作目录 / 项目", "field.members": "成员身份（PID / PPID / 启动时间）", "process.gaps": "进程证据缺口", "resources.hint": "CPU 为生命周期平均值（单核 100%）；RSS 为成员合计，可能重复计算共享页；仅展示 TCP 监听端口；Windows 下无工作目录。",
         title: 'Always-on Board',
         "help": "使用方法",
         "boardInfo": "数据与说明",
@@ -81,7 +83,7 @@ window.__ModuleLoader__.load({
         "info.file": "说明文件",
         "info.explanation": "列表优先显示你写的说明，其次是自动推断，最后是按配置生成的简述。",
         "info.updated": "表格里的“更新”指日志最后写入时间，不代表任务成功时间。",
-        "info.scope": "覆盖指定目录的 launchd 配置和当前用户的部分开发运行时；未关联不代表终端启动，进程存在不等于业务成功。",
+        "info.scope": "扫描任务计划程序任务、Windows 服务和当前用户的部分开发运行时；未关联不代表终端启动，进程存在不等于业务成功。",
         "info.unavailable": "暂无数据",
 
         refresh: '刷新',
@@ -170,15 +172,17 @@ window.__ModuleLoader__.load({
         "language": "Interface language",
         "reason.runtime-unknown": "Definition found; runtime not verified",
         "short.runtime-unknown": "Unverified",
-        "reason.not-loaded": "Definition exists, but is not loaded in the current user launchd domain",
+        "reason.not-loaded": "Definition exists, but is not currently loaded",
         "short.not-loaded": "Not loaded",
         "source.unknown": "Unverified; unmatched does not imply terminal-launched",
         "field.source": "Launch source",
         "field.management": "Management",
-        "management.definition": "launchd definitions — not loaded / unverified",
+        "management.definition": "Scheduled task / service definition — not loaded / unverified",
         "management.unassociated": "Not linked to a known manager",
         "management.launchd": "launchd — loaded",
-        'col.resources': 'CPU / RSS', "col.ports": "TCP listeners", "category.launchd": "launchd tasks", "category.project": "Projects", "category.agent": "Agent tools", "category.other": "Other tasks", "process.observed": "Observed · health unverified", "process.instances": "instances / processes", "field.cwd": "Working directory / project", "field.members": "Member identity (PID / PPID / start)", "process.gaps": "Process evidence gaps", "resources.hint": "CPU: ps average (100% = one core); RSS: member sum, shared pages may be counted twice. TCP listeners only.",
+        "management.scheduled": "Task Scheduler — loaded",
+        "management.service": "Windows service — running",
+        'col.resources': 'CPU / RSS', "col.ports": "TCP listeners", "category.launchd": "launchd tasks", "category.project": "Projects", "category.agent": "Agent tools", "category.other": "Other tasks", "process.observed": "Observed · health unverified", "process.instances": "instances / processes", "field.cwd": "Working directory / project", "field.members": "Member identity (PID / PPID / start)", "process.gaps": "Process evidence gaps", "resources.hint": "CPU: lifetime average (100% = one core); RSS: member sum, shared pages may be counted twice. TCP listeners only. No working directories on Windows.",
         title: 'Always-on Board',
         "help": "How to use",
         "boardInfo": "Data & descriptions",
@@ -199,7 +203,7 @@ window.__ModuleLoader__.load({
         "info.file": "Description file",
         "info.explanation": "Your descriptions take priority, followed by automatic explanations, then a short summary derived from configuration.",
         "info.updated": "“Updated” is the last log write time, not proof of a successful run.",
-        "info.scope": "Scans selected launchd definitions and current-user developer runtimes. Unmatched does not prove terminal origin; process presence does not prove business health.",
+        "info.scope": "Scans Task Scheduler tasks, Windows services and current-user developer runtimes. Unmatched does not prove terminal origin; process presence does not prove business health.",
         "info.unavailable": "Not available yet",
 
         refresh: 'Refresh',
@@ -508,7 +512,7 @@ window.__ModuleLoader__.load({
 
         function baseName(path) {
           if (!path) return ''
-          const parts = String(path).split('/')
+          const parts = String(path).split(/[/\\]/)
           return parts[parts.length - 1]
         }
 

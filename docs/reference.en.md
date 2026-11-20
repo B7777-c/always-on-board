@@ -14,7 +14,7 @@ First use may create `~/.config/dsh-ops-board/notes.json`:
 }
 ```
 
-Keys are full launchd labels. Manual notes override automatic descriptions. Optional `auto.json` in the same directory uses the same format to override built-in vendor descriptions. Edits appear on refresh. Notes are annotations, not validated behavior. Ephemeral process groups are not written to this persistent file.
+Keys are full launchd labels. On Windows, keys are `task:\...` / `service:...` ids. Manual notes override automatic descriptions. Optional `auto.json` in the same directory uses the same format to override built-in vendor descriptions. Edits appear on refresh. Notes are annotations, not validated behavior. Ephemeral process groups are not written to this persistent file.
 
 ## Agent JSON
 
@@ -26,9 +26,9 @@ GET /plugins/ops-board/state.json
 
 Host caching is five seconds. The snapshot includes `generatedAt`, `host`, `sources`, `summary`, note status, process evidence gaps and `tasks`.
 
-- `management`: `launchd`, `unassociated`, or `definition`.
+- `management`: `launchd`, `scheduled`, `service`, `unassociated`, or `definition`.
 - `category`: `project`, `agent`, or `other`.
-- launchd `runtimeStatus`: `loaded`, `not-loaded`, or `unknown`.
+- launchd `runtimeStatus`: `loaded`, `not-loaded`, or `unknown`. On Windows, Task Scheduler state maps as Ready / Queued / Running → `loaded`, Disabled → `disabled`; services map Running → `loaded`, Disabled → `disabled`.
 - Process groups use `kind: "process"` and include `projectPath`, `rootPids`, `instanceCount`, `members`, `cpuPercent`, `rssMiB`, `ports`, and `observedAt`.
 - Members include PID, PPID, start time, identity hash, working directory, resources and ports.
 
@@ -38,14 +38,16 @@ New process fields omit raw commands; commands are used locally for identificati
 
 The board scans `~/Library/LaunchAgents/*.plist` and `/Library/LaunchDaemons/*.plist`, queries current-user `launchctl list`, and reads definition/log file times. It uses `ps` and batched `lsof` for processes and TCP listeners.
 
+**Windows port:** the board queries `MSFT_ScheduledTask` (+ `Get-ScheduledTaskInfo`) and `Win32_Service` instead, and uses `Win32_Process` plus `Get-NetTCPConnection -State Listen` for processes and TCP listeners, in single PowerShell invocations passed via `-EncodedCommand`. Last-run time comes from Task Scheduler; there are no log paths or log mtimes on Windows. Working directories are not available on Windows, so project attribution falls back to `--directory` flags and task working directories. Services attach to their running process via `Win32_Service.ProcessId`; scheduled tasks join by executable / command-line match. Task Scheduler restart settings do not map to KeepAlive (only Auto services are keep-alive); staleness uses the trigger cadence (repetition interval, else daily / weekly / monthly) instead of the 30-hour default. A stopped service's `Win32_Service.ExitCode` of 1077 (`ERROR_SERVICE_NEVER_STARTED`) is not a failure and maps to a null exit code.
+
 - System-domain runtime is not independently queried; its definitions remain unverified.
 - XML text parsing does not fully support binary plists or every configuration form. Calendar schedules are not parsed for display. Unreadable/malformed definitions may be skipped.
 - Duplicate user/system labels are not yet independent task identities.
 - Runtime matching covers Node, Python, npm/npx, uv/uvicorn/gunicorn, nohup, PM2, tsx/Vite, Bun and Deno, plus descendants. It does not find every arbitrary executable, enter containers, or inspect remote hosts.
 - Current-user data only; other users' or system processes may be unavailable. Query gaps remain in JSON `processes.gaps` rather than a page banner; missing evidence is not treated as zero usage.
-- CPU is the `ps` average, with 100% corresponding to one core; group sums may exceed 100%. RSS sums may double-count shared pages and are not unique physical memory or energy use.
+- CPU is the `ps` average, with 100% corresponding to one core (on Windows, the lifetime average from `Win32_Process`); group sums may exceed 100%. RSS sums may double-count shared pages and are not unique physical memory or energy use.
 - Ports are TCP LISTEN endpoints, not UDP sockets or network traffic. `—` means unavailable; `∅` means no TCP listener found in that query.
-- Project inference uses cwd, nearby Git roots/project markers, and recognizable static-server `--directory` arguments. Unmarked directories are hints, not verified project ownership.
+- Project inference uses cwd, nearby Git roots/project markers, and recognizable static-server `--directory` arguments. Unmarked directories are hints, not verified project ownership. (On Windows there is no cwd; inference uses `--directory` flags and task working directories only.)
 - Parent/child processes and same-project/tool instances are merged. Matched launchd trees enrich their original task instead of creating duplicate process rows.
 - Exited ordinary processes disappear from the next snapshot. Without history or registration, their expected lifetime cannot be reconstructed.
 - No resource sorting, push alerts, automatic cleanup, or measured energy savings.

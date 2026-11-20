@@ -1,38 +1,75 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {parseProcesses, parseLsof, buildProcessGroups} from '../processes.js'
-const p=(pid,ppid,command,extra={})=>({pid,ppid,command,program:'node',startedAt:'Wed Oct 21 14:00:00 2026',identity:`identity-${pid}`,cpuPercent:2,rssMiB:10,...extra})
+import {parseWindowsProcesses, parseWindowsTcp, buildProcessGroups} from '../processes.js'
+
+// Shape mirrors the COLLECT_SCRIPT output (Get-CimInstance Win32_Process rows).
+const rec=(Id,ParentId,CommandLine,extra={})=>({Id,ParentId,Name:'node.exe',ExecutablePath:'C:\\Program Files\\nodejs\\node.exe',CommandLine,WorkingSetMB:10,CpuSeconds:2,StartTime:'2026-10-21T14:00:00.000Z',...extra})
+const p=(pid,ppid,command,extra={})=>({pid,ppid,command,program:'node',startedAt:'2026-10-21T14:00:00.000Z',identity:`identity-${pid}`,cpuPercent:2,rssMiB:10,...extra})
 const meta=rows=>new Map(rows.map(([pid,cwd,ports=[]])=>[pid,{cwd,ports}]))
-test('ps parser preserves command paths with spaces, filters other users, never publishes raw args',()=>{
- const rows=parseProcesses(' 12 1 501 2.5 2048 Wed Oct 21 14:00:00 2026 /Applications/Some App/node server.js --token=private\n 13 1 0 1.0 1024 Wed Oct 21 14:00:00 2026 /usr/bin/python app.py',501)
- assert.equal(rows.length,1);assert.equal(rows[0].rssMiB,2);assert.equal(rows[0].program,'node')
- const groups=buildProcessGroups(rows,meta([[12,'/project']]),[])
- assert.ok(!JSON.stringify(groups).includes('private'));assert.ok(!JSON.stringify(groups).includes('command'))
- assert.notEqual(rows[0].identity,parseProcesses('12 1 501 0.0 1 Thu Oct 22 14:00:00 2026 /node app.js',501)[0].identity)
+
+test('Windows process parser preserves command paths with spaces, averages CPU over lifetime, never publishes raw args',()=>{
+ const nowMs=Date.parse('2026-10-21T14:01:40.000Z') // 100 s after start
+ const rows=parseWindowsProcesses([
+   rec(12,1,'"C:\\Program Files\\nodejs\\node.exe" server.js --token=private'),
+   rec(13,1,'C:\\Python312\\python.exe app.py',{Name:'python.exe',ExecutablePath:'C:\\Python312\\python.exe'}),
+ ],1,nowMs)
+ assert.equal(rows.length,2)
+ assert.equal(rows[0].program,'node')
+ assert.equal(rows[0].cpuPercent,2) // 2 CPU-seconds / 100 s / 1 core
+ assert.equal(rows[0].rssMiB,10)
+ assert.equal(rows[1].program,'python')
+ const groups=buildProcessGroups(rows,meta([[12,null], [13,null]]),[])
+ assert.ok(!JSON.stringify(groups).includes('private'))
+ assert.ok(!JSON.stringify(groups).includes('command'))
+ assert.ok(!JSON.stringify(groups).includes('token'))
+ // Identity binds pid + start time + command: a restart changes it.
+ const again=parseWindowsProcesses([rec(12,1,'"C:\\Program Files\\nodejs\\node.exe" server.js --token=private',{StartTime:'2026-10-22T14:00:00.000Z'})],1,nowMs)
+ assert.notEqual(rows[0].identity,again[0].identity)
 })
-test('parents and descendants merge, launchd trees are enriched rather than double counted',()=>{
- const rows=[p(10,1,'/node api.js'),p(11,10,'/node worker.js'),p(12,11,'/bin/helper'),p(20,1,'/node dev.js')]
- const tasks=[{pid:10}];const groups=buildProcessGroups(rows,meta(rows.map(p=>[p.pid,'/project',['127.0.0.1:3000']])),tasks)
+
+test('Windows TCP parsing formats wildcard and IPv6 listeners and dedupes ports',()=>{
+ const data=parseWindowsTcp([
+   {OwningProcess:11,LocalAddress:'127.0.0.1',LocalPort:3000},
+   {OwningProcess:11,LocalAddress:'0.0.0.0',LocalPort:8080},
+   {OwningProcess:11,LocalAddress:'0.0.0.0',LocalPort:8080},
+   {OwningProcess:12,LocalAddress:'::',LocalPort:443},
+   {OwningProcess:12,LocalAddress:'::1',LocalPort:9000},
+ ])
+ assert.deepEqual(data.get(11).ports,['127.0.0.1:3000','*:8080'])
+ assert.deepEqual(data.get(12).ports,['*:443','[::1]:9000'])
+ assert.equal(data.get(11).cwd,null) // No working directories on Windows.
+ const group=buildProcessGroups([p(10,1,'C:\\node.exe app.js')],new Map(),[])[0]
+ assert.equal(group.ports,null)
+})
+
+test('parents and descendants merge, scheduled-task trees are enriched rather than double counted',()=>{
+ const rows=[p(10,1,'C:\\node.exe api.js'),p(11,10,'C:\\node.exe worker.js'),p(12,11,'C:\\helper.exe'),p(20,1,'C:\\node.exe dev.js')]
+ const tasks=[{pid:10}];const groups=buildProcessGroups(rows,meta(rows.map(p=>[p.pid,null,['127.0.0.1:3000']])),tasks)
  assert.deepEqual(tasks[0].members.map(p=>p.pid),[10,11,12]);assert.equal(tasks[0].rssMiB,30)
  assert.equal(groups.length,1);assert.deepEqual(groups[0].rootPids,[20]);assert.equal(groups[0].members.length,1)
 })
+
 test('independent instances group by project or agent tool, each member counted once',()=>{
- const rows=[p(10,1,'/uv blender-mcp'),p(11,10,'/python blender-mcp'),p(20,1,'/uv blender-mcp'),p(21,20,'/python blender-mcp'),p(30,1,'/node app.js'),p(40,1,'/node app.js')]
- const groups=buildProcessGroups(rows,meta([[10,'/a'],[11,'/a'],[20,'/b'],[21,'/b'],[30,'/project-a'],[40,'/project-b']]),[])
+ const rows=[p(10,1,'C:\\uv.exe blender-mcp'),p(11,10,'C:\\python.exe blender-mcp'),p(20,1,'C:\\uv.exe blender-mcp'),p(21,20,'C:\\python.exe blender-mcp'),p(30,1,'C:\\node.exe app.js'),p(40,1,'C:\\node.exe app.js')]
+ const groups=buildProcessGroups(rows,meta([[10,'C:\\a'],[11,'C:\\a'],[20,'C:\\b'],[21,'C:\\b'],[30,'C:\\project-a'],[40,'C:\\project-b']]),[])
  const tool=groups.find(g=>g.category==='agent');assert.equal(tool.instanceCount,2);assert.equal(tool.members.length,4);assert.equal(tool.cpuPercent,8)
  assert.equal(groups.filter(g=>g.category==='project').length,2)
  assert.equal(new Set(groups.flatMap(g=>g.members.map(p=>p.pid))).size,6)
 })
-test('lsof parsing handles multiple ports and spaced cwd; unavailable ports stay unknown',()=>{
- const data=parseLsof('p10\nn/Users/example/My Project\np11\nn127.0.0.1:3000\nn*:8080\nn*:8080\n')
- assert.equal(data.get(10).cwd,'/Users/example/My Project');assert.deepEqual(data.get(11).ports,['127.0.0.1:3000','*:8080'])
- const group=buildProcessGroups([p(10,1,'/node app.js')],new Map(),[])[0];assert.equal(group.ports,null)
-})
+
 test('cyclic or missing ancestry terminates safely',()=>{
- const groups=buildProcessGroups([p(10,11,'/node a'),p(11,10,'/node b'),p(20,999,'/node c')],new Map(),[])
+ const groups=buildProcessGroups([p(10,11,'C:\\node.exe a'),p(11,10,'C:\\node.exe b'),p(20,999,'C:\\node.exe c')],new Map(),[])
  assert.equal(groups.length,1);assert.deepEqual(groups[0].rootPids,[20])
 })
-test('live macOS collection observes a test-owned child listener without exposing arguments', {skip:process.platform!=='darwin',timeout:15000}, async()=>{
+
+test('relative working directories never hang project inference', {timeout: 5000}, async()=>{
+ const {projectPath}=await import('../processes.js')
+ assert.equal(await projectPath('.', new Map()), null)
+ assert.equal(await projectPath('relative\\path', new Map()), null)
+ assert.equal(await projectPath('', new Map()), null)
+})
+
+test('live Windows collection observes a test-owned child listener without exposing arguments', {skip:process.platform!=='win32',timeout:60000}, async()=>{
  const {spawn}=await import('node:child_process')
  const {collectProcesses}=await import('../processes.js')
  const child=spawn(process.execPath,['-e',"require('net').createServer().listen(0,'127.0.0.1',function(){process.send(this.address().port)})",'--','--token=live-test-secret'],{stdio:['ignore','ignore','ignore','ipc']})

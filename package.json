@@ -1,10 +1,10 @@
 {
   "name": "@local/dsh-ops-board",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "Always-on Board: local background-task visibility and Agent intervention for AI coders using DeepSeek Harness.",
+  "description": "Always-on Board (Windows port): local background-task visibility and Agent intervention for AI coders using DeepSeek Harness. Task Scheduler tasks and Windows services replace launchd; Win32_Process and Get-NetTCPConnection replace ps/lsof.",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

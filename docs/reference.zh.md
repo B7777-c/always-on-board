@@ -14,7 +14,7 @@
 }
 ```
 
-键为完整 launchd label。人工说明优先于自动说明；可在同目录 `auto.json` 使用相同格式覆盖内置厂商说明。保存后随刷新生效。说明是用户注释，不是任务行为的验证结果。
+键为完整 launchd label。Windows 下键为 `task:\...` / `service:...` 形式的 ID。人工说明优先于自动说明；可在同目录 `auto.json` 使用相同格式覆盖内置厂商说明。保存后随刷新生效。说明是用户注释，不是任务行为的验证结果。
 
 ## 给 Agent 的 JSON
 
@@ -56,7 +56,7 @@ JSON 提供状态和日志**路径**，不读取日志正文。普通进程组�
 
 两区内直接列任务，不再插入项目路径、Agent 工具或管理方式的多级标题。项目路径、管理方式、用途归组和来源证据保留在技术详情与 JSON 中。未关联到已知管理器并不代表一定由终端启动。
 
-JSON 继续保留 `management: launchd | unassociated | definition`、`category: project | agent | other` 和 launchd `runtimeStatus: loaded | not-loaded | unknown`，界面简化不改变采集范围或底层证据。
+JSON 继续保留 `management: launchd | scheduled | service | unassociated | definition`、`category: project | agent | other` 和 launchd `runtimeStatus: loaded | not-loaded | unknown`，界面简化不改变采集范围或底层证据。Windows 下任务计划程序状态映射为：就绪 / 已排队 / 运行中 → `loaded`，禁用 → `disabled`；服务映射为：运行中 → `loaded`，禁用 → `disabled`。
 
 ## 状态如何理解
 
@@ -66,6 +66,8 @@ JSON 继续保留 `management: launchd | unassociated | definition`、`category:
 
 当前读取 `~/Library/LaunchAgents/*.plist`、`/Library/LaunchDaemons/*.plist`、当前用户的 `launchctl list` 以及配置/日志的文件时间；通过 `ps` 和批量 `lsof` 补充当前用户的开发运行时及子进程。输出过期阈值为 StartInterval 的 2.5 倍且至少 15 分钟；没有间隔时使用 30 小时。运行中的 KeepAlive 任务不会因为日志安静而变黄。
 
+**Windows 移植版：**改为查询 `MSFT_ScheduledTask`（+ `Get-ScheduledTaskInfo`）和 `Win32_Service`，进程与 TCP 监听改用 `Win32_Process` 和 `Get-NetTCPConnection -State Listen`，均由单次 PowerShell 调用采集，脚本经 `-EncodedCommand` 传入。上次运行时间取自任务计划程序；Windows 下没有日志路径与日志修改时间，也没有工作目录，项目归属仅依靠 `--directory` 参数和任务的工作目录。服务通过 `Win32_Service.ProcessId` 关联运行进程；计划任务按可执行文件 / 命令行匹配关联。任务计划程序的重启动设置不映射为 KeepAlive（只有自动服务才是常驻）；过期判断按触发器节奏（重复间隔，否则每日 / 每周 / 每月），而不是默认的 30 小时。已停止服务的 `Win32_Service.ExitCode` 为 1077（`ERROR_SERVICE_NEVER_STARTED`，从未启动）不是故障，映射为空退出码。
+
 **已知限制：**
 
 - 系统域只扫描定义，没有独立查询系统运行态。因此系统配置显示为待确认，必须用对应 launchd 域再次核对。
@@ -73,8 +75,8 @@ JSON 继续保留 `management: launchd | unassociated | definition`、`category:
 - 当前使用 XML 文本解析 plist，不完整支持二进制 plist 和所有配置形式；StartCalendarInterval 没有解析展示。解析失败的条目可能被跳过。
 - 相同 label 的用户/系统任务会被合并，尚未按域建立独立身份。
 - 普通进程匹配 Node、Python、npm/npx、uv/uvicorn/gunicorn、nohup、PM2、tsx/Vite、Bun、Deno 等运行时，并合并它们的子进程；不覆盖所有任意名称的后台可执行程序，不进入容器或远端机器。仅采集当前用户，其他用户和系统进程的资源可能不可用。
-- `ps` CPU 为系统提供的平均值，单核 100%，多进程合计可超过 100%；RSS 为成员相加，可能重复计算共享内存，不能等同于独占内存或耗电量。仅展示 TCP LISTEN，不是网络流量或 UDP 占用。`—` 表示不可用，`∅` 表示此次查询无 TCP 监听。查询缺口仅保留在 JSON 的 `processes.gaps`，主页面不展示该提示。
-- 按工作目录及最近 Git 根目录/项目标记推断项目；静态服务优先参考可识别的 `--directory`。工具名称按本机命令和目录规则识别，不能证明由谁创建。同项目/同工具的多个独立实例在一行汇总，详情保留成员身份；已有 launchd 子树合并回原任务，不重复展示。
+- `ps` CPU 为系统提供的平均值，单核 100%，多进程合计可超过 100%（Windows 下为 `Win32_Process` 的生命周期平均值）；RSS 为成员相加，可能重复计算共享内存，不能等同于独占内存或耗电量。仅展示 TCP LISTEN，不是网络流量或 UDP 占用。`—` 表示不可用，`∅` 表示此次查询无 TCP 监听。查询缺口仅保留在 JSON 的 `processes.gaps`，主页面不展示该提示。
+- 按工作目录及最近 Git 根目录/项目标记推断项目；静态服务优先参考可识别的 `--directory`。工具名称按本机命令和目录规则识别，不能证明由谁创建。同项目/同工具的多个独立实例在一行汇总，详情保留成员身份；已有 launchd 子树合并回原任务，不重复展示。（Windows 下没有工作目录，仅用 `--directory` 参数和任务的工作目录推断。）
 - 进程显示 ✓ 仅代表观测到运行，不验证业务健康。退出的普通进程会从下次快照消失；没有历史登记便无法判断它本来是否应该持续运行。
 - 没有推送通知、新增任务历史、CPU/内存排序、耗电测量或自动清理。
 
@@ -95,4 +97,4 @@ npm test
 
 测试覆盖解析、父子合并、launchd 去重、项目与工具分组、端口缺失、身份变化，以及右键草稿约束，不覆盖真实修复、停用或省电效果。DSH 验收需要另行确认侧边栏、看板、右键菜单及草稿填入；本次在本机 DSH 0.2.1-rc.2 验证了常驻任务/运行进程两个平铺列表、中英文切换、图标状态、端口列、项目进程右键菜单和解释草稿填入；没有发送修复或停用请求，也没有测量省电效果。
 
-文件分工：`index.js` launchd 采集与 JSON 接口；`processes.js` 本机进程采集与分组；`client.js` 看板与 Agent 草稿；`locale/` 展示名称；`cordis.patch.yml` DSH bundle 注册；`tests/` 聚焦测试。
+文件分工：`index.js` launchd 采集与 JSON 接口（Windows 移植版为任务计划程序 / 服务采集）；`processes.js` 本机进程采集与分组；`client.js` 看板与 Agent 草稿；`locale/` 展示名称；`cordis.patch.yml` DSH bundle 注册；`tests/` 聚焦测试。
