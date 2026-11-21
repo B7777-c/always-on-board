@@ -17,6 +17,9 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { dirname, join } from 'node:path'
 
+export const name = 'ops-board'
+export const inject = ['webServer']
+
 const STATE_PATH = '/plugins/ops-board/state.json'
 const CACHE_MS = 5000
 

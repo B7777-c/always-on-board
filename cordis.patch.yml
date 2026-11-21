@@ -1,3 +1,4 @@
 - insert:
     - id: ops-board
       name: '@local/dsh-ops-board'
+      inject: [webServer]
